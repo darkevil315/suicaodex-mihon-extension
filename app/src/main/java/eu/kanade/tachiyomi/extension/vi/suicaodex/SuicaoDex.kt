@@ -70,9 +70,17 @@ class SuicaoDex : HttpSource() {
     override fun getFilterList(): FilterList = FilterList(
         SortFilter(),
         StatusFilter(),
+        TagFilter(),
     )
 
     override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage {
+        val tagFilter = filters.filterIsInstance<TagFilter>().firstOrNull()
+        val selectedTag = tagFilter?.selectedTag()
+
+        if (selectedTag != null && query.isBlank()) {
+            return getMangaByTag(selectedTag, page)
+        }
+
         val sortFilter = filters.filterIsInstance<SortFilter>().firstOrNull()
         val statusFilter = filters.filterIsInstance<StatusFilter>().firstOrNull()
 
@@ -94,6 +102,41 @@ class SuicaoDex : HttpSource() {
 
         val response = client.newCall(GET(urlBuilder.build().toString(), headers)).awaitSuccess()
         return parseMangaList(response, page)
+    }
+
+    private suspend fun getMangaByTag(tag: SuicaoDexTag, page: Int): MangasPage {
+        val url = "$baseUrl/tag/${tag.id}/${tag.slug}?page=$page"
+        val response = client.newCall(GET(url, headers)).awaitSuccess()
+        val html = response.body.string()
+
+        val cardPattern = """href\\":\\"/manga/([0-9a-f\-]{36})/([^\\"]+)\\",\\"title\\":\\"([^\\"]+)\\"(?:.*?)\\"src\\":\\"([^\\"]+)""".toRegex()
+        val mangas = mutableListOf<SManga>()
+        val seen = mutableSetOf<String>()
+
+        for (match in cardPattern.findAll(html)) {
+            val (id, _, rawTitle, coverUrl) = match.destructured
+            if (seen.add(id)) {
+                val title = unescapeUnicode(rawTitle)
+                mangas.add(
+                    SManga.create().apply {
+                        url = "/v1/manga/$id"
+                        this.title = title
+                        thumbnail_url = coverUrl
+                    },
+                )
+            }
+        }
+
+        val nextPage = page + 1
+        val hasNextPage = html.contains("page=$nextPage")
+        return MangasPage(mangas, hasNextPage)
+    }
+
+    private fun unescapeUnicode(str: String): String {
+        val regex = """\\u([0-9a-fA-F]{4})""".toRegex()
+        return regex.replace(str) { matchResult ->
+            matchResult.groupValues[1].toInt(16).toChar().toString()
+        }
     }
 
     private fun parseMangaList(response: Response, page: Int): MangasPage {
