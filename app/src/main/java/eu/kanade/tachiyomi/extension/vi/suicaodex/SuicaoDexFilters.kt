@@ -2,25 +2,27 @@ package eu.kanade.tachiyomi.extension.vi.suicaodex
 
 import eu.kanade.tachiyomi.source.model.Filter
 
-class SortFilter : Filter.Select<String>(
+class SortFilter : Filter.Sort(
     "Sắp xếp",
     arrayOf(
         "Mới cập nhật",
         "Mới đăng",
-        "Tên A-Z",
-        "Tên Z-A",
-        "Năm phát hành (mới nhất)",
-        "Năm phát hành (cũ nhất)",
+        "Tên truyện",
+        "Năm phát hành",
     ),
+    Selection(0, false),
 ) {
-    fun toSortParam(): Pair<String, String> = when (state) {
-        0 -> Pair("latestChapter", "desc")
-        1 -> Pair("publishedAt", "desc")
-        2 -> Pair("title", "asc")
-        3 -> Pair("title", "desc")
-        4 -> Pair("year", "desc")
-        5 -> Pair("year", "asc")
-        else -> Pair("latestChapter", "desc")
+    fun toSortParam(): Pair<String, String> {
+        val s = state ?: Selection(0, false)
+        val sort = when (s.index) {
+            0 -> "latestChapter"
+            1 -> "publishedAt"
+            2 -> "title"
+            3 -> "year"
+            else -> "latestChapter"
+        }
+        val direction = if (s.ascending) "asc" else "desc"
+        return Pair(sort, direction)
     }
 }
 
