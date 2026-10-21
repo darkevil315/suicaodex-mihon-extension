@@ -214,9 +214,9 @@ def main() -> None:
     parser.add_argument("--version", required=True, help="versionName, e.g. 1.6.1")
     parser.add_argument("--lib-version", required=True, help="e.g. 1.6 (tachiyomix lib version)")
     parser.add_argument("--version-id", type=int, default=1)
-    parser.add_argument("--base-url", default="https://cuutruyen.net", help="the manga site's own base URL")
-    parser.add_argument("--repo-name", default="Cứu Truyện")
-    parser.add_argument("--badge-label", default="CT")
+    parser.add_argument("--base-url", default="https://suicaodex.com", help="the manga site's own base URL")
+    parser.add_argument("--repo-name", default="SuicaoDex")
+    parser.add_argument("--badge-label", default="SD")
     parser.add_argument("--website", required=True, help="e.g. https://github.com/<owner>/<repo>")
     parser.add_argument("--discord", default=None)
     parser.add_argument("--signing-fingerprint", required=True,

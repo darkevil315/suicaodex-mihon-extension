@@ -91,6 +91,7 @@ jobs:
 
           python3 scripts/generate_index.py \
             --pkg "$PKG" --name "$NAME" --lang "$LANG" --nsfw 1 \
+            --repo-name "$NAME" --badge-label "SD" --base-url "https://suicaodex.com" \
             --code "$VERSION_CODE" --version "$VERSION_NAME" --lib-version "$LIB_VERSION" \
             --version-id "$VERSION_ID" \
             --website "$WEBSITE" --signing-fingerprint "$SIGNING_FINGERPRINT" \
