@@ -114,18 +114,15 @@ class SuicaoDex : HttpSource() {
         val seen = mutableSetOf<String>()
 
         for (match in cardPattern.findAll(html)) {
-            val id = match.groupValues[1]
+            val mangaId = match.groupValues[1]
             val rawTitle = match.groupValues[3]
             val coverUrl = match.groupValues[4]
-            if (seen.add(id)) {
-                val title = unescapeUnicode(rawTitle)
-                mangas.add(
-                    SManga.create().apply {
-                        url = "/v1/manga/$id"
-                        this.title = title
-                        thumbnail_url = coverUrl
-                    },
-                )
+            if (seen.add(mangaId)) {
+                val manga = SManga.create()
+                manga.url = "/v1/manga/$mangaId"
+                manga.title = unescapeUnicode(rawTitle)
+                manga.thumbnail_url = coverUrl
+                mangas.add(manga)
             }
         }
 
