@@ -16,7 +16,6 @@ import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -39,11 +38,9 @@ class SuicaoDex : HttpSource() {
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy {
-        Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-        }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
     }
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
