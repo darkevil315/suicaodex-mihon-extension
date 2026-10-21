@@ -4,13 +4,22 @@ import eu.kanade.tachiyomi.source.model.Filter
 
 class SortFilter : Filter.Select<String>(
     "Sắp xếp",
-    arrayOf("Mới cập nhật", "Lượt xem", "Điểm đánh giá", "Mới đăng"),
+    arrayOf(
+        "Mới cập nhật",
+        "Mới đăng",
+        "Tên A-Z",
+        "Tên Z-A",
+        "Năm phát hành (mới nhất)",
+        "Năm phát hành (cũ nhất)",
+    ),
 ) {
     fun toSortParam(): Pair<String, String> = when (state) {
         0 -> Pair("latestChapter", "desc")
-        1 -> Pair("views", "desc")
-        2 -> Pair("score", "desc")
-        3 -> Pair("createdAt", "desc")
+        1 -> Pair("publishedAt", "desc")
+        2 -> Pair("title", "asc")
+        3 -> Pair("title", "desc")
+        4 -> Pair("year", "desc")
+        5 -> Pair("year", "asc")
         else -> Pair("latestChapter", "desc")
     }
 }

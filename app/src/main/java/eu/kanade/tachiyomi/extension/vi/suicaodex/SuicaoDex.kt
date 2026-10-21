@@ -52,9 +52,17 @@ class SuicaoDex : HttpSource() {
     // ------------------------------------------------------------------------------------
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val url = "$apiBaseUrl/v1/manga?page=$page&limit=20&sort=views&direction=desc"
+        if (page > 1) {
+            val url = "$apiBaseUrl/v1/manga?page=${page - 1}&limit=20&sort=publishedAt&direction=desc"
+            val response = client.newCall(GET(url, headers)).awaitSuccess()
+            return parseMangaList(response, page)
+        }
+        val url = "$apiBaseUrl/v1/rankings/manga?window=all-time&limit=50"
         val response = client.newCall(GET(url, headers)).awaitSuccess()
-        return parseMangaList(response, page)
+        val body = response.body.string()
+        val envelope = json.decodeFromString<SuicaoRankingListResponse>(body)
+        val mangas = envelope.data.mapNotNull { it.manga?.toSManga() }
+        return MangasPage(mangas, hasNextPage = true)
     }
 
     override suspend fun getLatestUpdates(page: Int): MangasPage {

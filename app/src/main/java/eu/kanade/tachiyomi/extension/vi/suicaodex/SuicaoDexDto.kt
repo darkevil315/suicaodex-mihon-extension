@@ -9,6 +9,17 @@ data class SuicaoMangaListResponse(
 )
 
 @Serializable
+data class SuicaoRankingListResponse(
+    val data: List<SuicaoRankingItem> = emptyList(),
+)
+
+@Serializable
+data class SuicaoRankingItem(
+    val rank: Int? = null,
+    val manga: SuicaoManga? = null,
+)
+
+@Serializable
 data class SuicaoMeta(
     val page: Int? = null,
     val limit: Int? = null,
