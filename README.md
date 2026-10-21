@@ -15,7 +15,7 @@ Bạn chỉ cần thêm URL repository này vào app, Mihon / Suwayomi sẽ tự
 2. Vào **Cài đặt (Settings)** -> **Duyệt (Browse)** -> **Kho extension (Extension repositories)** -> Nhấn **Thêm (Add)**.
 3. Dán đường link sau:
    ```text
-   https://raw.githubusercontent.com/<TÊN_GITHUB_CỦA_BẠN>/suicaodex-mihon-extension/repo/index.pb
+   https://raw.githubusercontent.com/darkevil315/suicaodex-mihon-extension/repo/index.pb
    ```
 4. Quay lại mục **Khám phá (Browse)** -> **Tiện ích mở rộng (Extensions)**, tìm kiếm `SuicaoDex` và bấm **Cài đặt (Install)**.
 
@@ -58,7 +58,7 @@ git init
 git add .
 git commit -m "Initial commit SuicaoDex Mihon Extension"
 git branch -M main
-git remote add origin https://github.com/<TÊN_GITHUB_CỦA_BẠN>/suicaodex-mihon-extension.git
+git remote add origin https://github.com/darkevil315/suicaodex-mihon-extension.git
 git push -u origin main
 ```
 Sau khi push, GitHub Actions sẽ tự động chạy:
