@@ -144,6 +144,20 @@ class SuicaoDex : HttpSource() {
         val body = response.body.string()
         val mangaDto = json.decodeFromString<SuicaoManga>(body)
 
+        val tagList = mangaDto.tags.map { it.name }.toMutableList()
+        when (mangaDto.contentRating?.lowercase()) {
+            "erotica", "pornographic", "adult" -> {
+                if (!tagList.any { it.equals("Adult", ignoreCase = true) }) {
+                    tagList.add(0, "Adult")
+                }
+            }
+            "suggestive" -> {
+                if (!tagList.any { it.equals("Suggestive", ignoreCase = true) }) {
+                    tagList.add("Suggestive")
+                }
+            }
+        }
+
         return SManga.create().apply {
             url = "/v1/manga/${mangaDto.id}"
             title = mangaDto.title
@@ -151,7 +165,7 @@ class SuicaoDex : HttpSource() {
             description = mangaDto.description
             author = mangaDto.authors.joinToString(", ") { it.name }.ifBlank { null }
             artist = mangaDto.artists.joinToString(", ") { it.name }.ifBlank { null }
-            genre = mangaDto.tags.joinToString(", ") { it.name }
+            genre = tagList.joinToString(", ").ifBlank { null }
             status = when (mangaDto.status?.lowercase()) {
                 "ongoing" -> SManga.ONGOING
                 "completed" -> SManga.COMPLETED
