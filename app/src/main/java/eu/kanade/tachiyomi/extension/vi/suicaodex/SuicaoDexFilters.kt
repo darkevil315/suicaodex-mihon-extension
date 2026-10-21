@@ -30,13 +30,6 @@ class StatusFilter : Filter.Select<String>(
 
 data class SuicaoDexTag(val name: String, val id: String, val slug: String)
 
-class TagFilter : Filter.Select<String>(
-    "Thể loại",
-    TAGS.map { it.name }.toTypedArray(),
-) {
-    fun selectedTag(): SuicaoDexTag? = if (state > 0) TAGS[state] else null
-}
-
 private val TAGS = arrayOf(
     SuicaoDexTag("Tất cả", "", ""),
     SuicaoDexTag("4-Koma", "01a0de90-31e4-74b6-9dca-914eae0752d7", "4-koma"),
@@ -115,7 +108,7 @@ private val TAGS = arrayOf(
     SuicaoDexTag("Time Travel", "01a0de90-31e5-7a95-a37f-99728707d291", "time-travel"),
     SuicaoDexTag("Traditional Games", "01a0de90-31e3-7ba8-adb0-907615688cda", "traditional-games"),
     SuicaoDexTag("Tragedy", "01a0de90-31e3-7f54-8241-0b89c72cc7a4", "tragedy"),
-    SuicaoDexTag("Truyện Việt", "01a12b0d-062b-78de-8fe2-1fb7d0f69a99", "web1-0633fd95b5a0a41d048e72a800ca16eb"),
+    SuicaoDexTag("Truy\u1ec7n Vi\u1ec7t", "01a12b0d-062b-78de-8fe2-1fb7d0f69a99", "web1-0633fd95b5a0a41d048e72a800ca16eb"),
     SuicaoDexTag("Vampires", "01a0de90-31e4-7d2f-9a4f-65634c1e7271", "vampires"),
     SuicaoDexTag("Video Games", "01a0de90-31e3-7119-925f-cf50fc9b3a6a", "video-games"),
     SuicaoDexTag("Villainess", "01a0de90-31e3-788a-95a7-a98dfe0b6363", "villainess"),
@@ -126,3 +119,10 @@ private val TAGS = arrayOf(
     SuicaoDexTag("Yuri", "01a10076-a31d-7ce3-b3c5-6c270b45947e", "web1-8545c9e3fa40f5706e638cabe4a5830a"),
     SuicaoDexTag("Zombies", "01a0de90-31e5-7183-860b-b01b030cc7d4", "zombies"),
 )
+
+class TagFilter : Filter.Select<String>(
+    "Thể loại",
+    TAGS.map { it.name }.toTypedArray(),
+) {
+    fun selectedTag(): SuicaoDexTag? = if (state > 0) TAGS[state] else null
+}

@@ -114,7 +114,9 @@ class SuicaoDex : HttpSource() {
         val seen = mutableSetOf<String>()
 
         for (match in cardPattern.findAll(html)) {
-            val (id, _, rawTitle, coverUrl) = match.destructured
+            val id = match.groupValues[1]
+            val rawTitle = match.groupValues[3]
+            val coverUrl = match.groupValues[4]
             if (seen.add(id)) {
                 val title = unescapeUnicode(rawTitle)
                 mangas.add(
