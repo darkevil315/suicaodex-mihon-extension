@@ -202,12 +202,13 @@ class SuicaoDex : HttpSource() {
     }
 
     private fun SuicaoChapter.toSChapter(mangaId: String): SChapter {
-        val chapterNum = number?.toFloatOrNull() ?: -1f
+        val chapterNum = number?.toFloatOrNull() ?: 1f
         val displayName = when {
-            title.isNullOrBlank() && !number.isNullOrBlank() -> "Ch. $number"
             !title.isNullOrBlank() && !number.isNullOrBlank() -> "Ch. $number - $title"
+            title.isNullOrBlank() && !number.isNullOrBlank() -> "Ch. $number"
             !title.isNullOrBlank() -> title
-            else -> "Chương $id"
+            !volume.isNullOrBlank() -> "Vol. $volume"
+            else -> "Oneshot"
         }
         val scanlatorName = groups.joinToString(", ") { it.name }.ifBlank { null }
 

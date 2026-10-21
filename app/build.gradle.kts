@@ -11,7 +11,7 @@ plugins {
 val extName = "SuicaoDex"
 val pkgNameSuffix = "vi.suicaodex"
 val extClass = ".SuicaoDex"
-val extVersionCode = 3
+val extVersionCode = 4
 val libVersion = "1.6"
 
 // JitPack artifact version — tachiyomix README says "1.6" but the actual
