@@ -9,10 +9,10 @@ plugins {
 // Extension metadata for CBHentai
 // ----------------------------------------------------------------------------------
 val extName = "CBHentai"
-val pkgNameSuffix = "vi.cbhentai"
-val extClass = ".CBHentai"
-val extVersionCode = 1
-val extVersionName = "1.6.1"
+val pkgNameSuffix = "vi.hentaicube"
+val extClass = ".HentaiCB"
+val extVersionCode = 10699
+val extVersionName = "1.6.99"
 val libVersion = "1.6"
 
 val tachiyomixVersion = "1.6.0"

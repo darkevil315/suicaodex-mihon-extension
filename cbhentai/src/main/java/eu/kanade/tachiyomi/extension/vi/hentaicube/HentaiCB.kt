@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.vi.cbhentai
+package eu.kanade.tachiyomi.extension.vi.hentaicube
 
 import android.app.Application
 import android.content.SharedPreferences
@@ -40,7 +40,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-class CBHentai : HttpSource(), ConfigurableSource {
+class HentaiCB : HttpSource(), ConfigurableSource {
+
+    override val id: Long = 823638192569572166L
 
     override val name = "CBHentai"
 
@@ -79,6 +81,16 @@ class CBHentai : HttpSource(), ConfigurableSource {
     override val client: OkHttpClient = network.client.newBuilder()
         .addInterceptor(::authInterceptor)
         .build()
+
+    private val xhrHeaders: Headers
+        get() = headersBuilder()
+            .set("X-Requested-With", "XMLHttpRequest")
+            .set("Referer", "$baseUrl/")
+            .build()
+
+    // ------------------------------------------------------------------------------------
+    // Auto FlareSolverr Interceptor
+    // ------------------------------------------------------------------------------------
 
     private fun isCloudflareChallenge(response: Response): Boolean {
         if (response.code in listOf(403, 503)) return true
@@ -193,61 +205,59 @@ class CBHentai : HttpSource(), ConfigurableSource {
         }
     }
 
-    override fun headersBuilder(): Headers.Builder = super.headersBuilder().apply {
-        val customUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
-            ?: preferences.getString(AUTO_FLARE_UA_KEY, null)?.trim()?.ifBlank { null }
-        if (customUA != null) {
-            set("User-Agent", customUA)
-        }
-        val customCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
-            ?: preferences.getString(AUTO_FLARE_COOKIE_KEY, null)?.trim()?.ifBlank { null }
-        if (customCookie != null) {
-            set("Cookie", customCookie)
-        }
-        set("Referer", "$baseUrl/")
-    }
-
     // ------------------------------------------------------------------------------------
-    // Popular & Latest & Search (Madara standard)
+    // Popular, Latest, Search (Madara AJAX)
     // ------------------------------------------------------------------------------------
 
-    override suspend fun getPopularManga(page: Int): MangasPage {
-        val url = if (page > 1) {
-            "$baseUrl/read/page/$page/?m_orderby=views"
-        } else {
-            "$baseUrl/read/?m_orderby=views"
-        }
-        return parseMangaListing(client.newCall(GET(url, headers)).awaitSuccess())
+    private enum class BrowseMode {
+        Popular,
+        Latest,
+        Search,
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage {
-        val url = if (page > 1) {
-            "$baseUrl/read/page/$page/?m_orderby=latest"
-        } else {
-            "$baseUrl/read/?m_orderby=latest"
-        }
-        return parseMangaListing(client.newCall(GET(url, headers)).awaitSuccess())
-    }
+    override suspend fun getPopularManga(page: Int): MangasPage = ajaxList(page, BrowseMode.Popular)
 
-    override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage {
-        val urlBuilder = if (page > 1) {
-            "$baseUrl/read/page/$page/".toHttpUrl().newBuilder()
-        } else {
-            "$baseUrl/read/".toHttpUrl().newBuilder()
-        }
+    override suspend fun getLatestUpdates(page: Int): MangasPage = ajaxList(page, BrowseMode.Latest)
 
-        if (query.isNotBlank()) {
-            urlBuilder.addQueryParameter("s", query.trim())
-            urlBuilder.addQueryParameter("post_type", "wp-manga")
-        } else {
-            urlBuilder.addQueryParameter("m_orderby", "latest")
-        }
+    override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage =
+        ajaxList(page, BrowseMode.Search, query)
 
-        val url = urlBuilder.build()
-        return parseMangaListing(client.newCall(GET(url, headers)).awaitSuccess())
-    }
+    private suspend fun ajaxList(page: Int, mode: BrowseMode, query: String = ""): MangasPage {
+        val pageSize = 25
+        val body = FormBody.Builder().apply {
+            add("action", "madara_load_more")
+            add("page", (page - 1).toString())
+            add("template", "madara-core/content/content-archive")
+            add("vars[paged]", "1")
+            add("vars[template]", "archive")
+            add("vars[posts_per_page]", pageSize.toString())
+            add("vars[post_type]", "wp-manga")
+            add("vars[post_status]", "publish")
+            add("vars[manga_archives_item_layout]", "big_thumbnail")
+            when (mode) {
+                BrowseMode.Popular -> {
+                    add("vars[orderby]", "meta_value_num")
+                    add("vars[meta_key]", "_wp_manga_views")
+                    add("vars[order]", "DESC")
+                }
+                BrowseMode.Latest -> {
+                    add("vars[orderby]", "meta_value_num")
+                    add("vars[meta_key]", "_latest_update")
+                    add("vars[order]", "DESC")
+                }
+                BrowseMode.Search -> {
+                    if (query.isNotBlank()) {
+                        add("vars[s]", query.trim())
+                    } else {
+                        add("vars[orderby]", "meta_value_num")
+                        add("vars[meta_key]", "_latest_update")
+                        add("vars[order]", "DESC")
+                    }
+                }
+            }
+        }.build()
 
-    private fun parseMangaListing(response: Response): MangasPage {
+        val response = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).awaitSuccess()
         val document = Jsoup.parse(response.body.string(), baseUrl)
         val elements = document.select(".page-item-detail, .c-tabs-item__content, .manga-item")
         val mangas = elements.mapNotNull { element ->
@@ -263,8 +273,7 @@ class CBHentai : HttpSource(), ConfigurableSource {
             }
         }
 
-        val hasNextPage = document.selectFirst(".nav-previous a, .pagination a.next, a.next") != null
-        return MangasPage(mangas, hasNextPage)
+        return MangasPage(mangas, mangas.size >= pageSize)
     }
 
     // ------------------------------------------------------------------------------------
@@ -280,130 +289,140 @@ class CBHentai : HttpSource(), ConfigurableSource {
         val detailsDeferred = if (fetchDetails) async { getMangaDetailsInternal(manga) } else null
         val chaptersDeferred = if (fetchChapters) async { getChapterListInternal(manga) } else null
 
-        val detailsResult = detailsDeferred?.await()
-        val newChapters = chaptersDeferred?.await()
-
         SMangaUpdate(
-            detailsResult ?: manga,
-            newChapters ?: chapters,
+            details = detailsDeferred?.await(),
+            chapters = chaptersDeferred?.await(),
         )
     }
 
     private suspend fun getMangaDetailsInternal(manga: SManga): SManga {
-        val url = "$baseUrl${manga.url}"
-        val response = client.newCall(GET(url, headers)).awaitSuccess()
-        val document = Jsoup.parse(response.body.string(), baseUrl)
+        val document = client.newCall(GET("$baseUrl${manga.url}", headers)).awaitSuccess().let {
+            Jsoup.parse(it.body.string(), baseUrl)
+        }
 
+        val updated = SManga.create()
         val title = document.selectFirst("h1, .post-title h1")?.text()?.trim() ?: manga.title
-        val author = document.select(".author-content a, .post-content_item:contains(Tác giả) .summary-content a")
-            .joinToString { it.text().trim() }
-            .takeIf { it.isNotBlank() }
-        val genre = document.select(".genres-content a").joinToString { it.text().trim() }
-            .takeIf { it.isNotBlank() }
+        updated.title = title
+
+        val author = document.select(".author-content a").eachText().joinToString(", ")
+        val artist = document.select(".artist-content a").eachText().joinToString(", ")
+        updated.author = author.ifBlank { artist }.ifBlank { null }
+        updated.artist = artist.ifBlank { author }.ifBlank { null }
+
         val desc = document.selectFirst(".description-summary .summary__content, .manga-excerpt, .summary__content")
             ?.text()?.trim()
+        updated.description = desc
 
         val status = when (document.selectFirst(".post-status .summary-content")?.text()?.lowercase()) {
-            "on-going", "đang tiến hành" -> SManga.ONGOING
+            "on-going", "ongoing", "đang tiến hành" -> SManga.ONGOING
             "completed", "hoàn thành" -> SManga.COMPLETED
+            "canceled", "hủy" -> SManga.CANCELLED
+            "on hold", "tạm ngưng" -> SManga.ON_HIATUS
             else -> SManga.UNKNOWN
         }
+        updated.status = status
 
-        return manga.apply {
-            this.title = title
-            if (author != null) this.author = author
-            if (genre != null) this.genre = genre
-            if (desc != null) this.description = desc
-            this.status = status
-            this.initialized = true
-        }
+        val genres = document.select(".genres-content a").eachText()
+        updated.genre = if (genres.isNotEmpty()) genres.joinToString(", ") else null
+
+        val img = document.selectFirst(".summary_image img")
+        val dataSrc = img?.attr("abs:data-src")
+        val src = img?.attr("abs:src")
+        updated.thumbnail_url = if (!dataSrc.isNullOrBlank()) dataSrc else src
+
+        return updated
     }
 
     private suspend fun getChapterListInternal(manga: SManga): List<SChapter> {
-        val url = "$baseUrl${manga.url}"
-        val response = client.newCall(GET(url, headers)).awaitSuccess()
-        val document = Jsoup.parse(response.body.string(), baseUrl)
-
-        var chapterElements = document.select("li.wp-manga-chapter")
-        if (chapterElements.isEmpty()) {
-            // Try Madara Ajax chapter list
-            val mangaId = document.selectFirst("#manga-chapters-holder")?.attr("data-id")
-            if (!mangaId.isNullOrBlank()) {
-                val ajaxUrl = "$baseUrl/wp-admin/admin-ajax.php"
-                val formBody = FormBody.Builder()
-                    .add("action", "manga_get_chapters")
-                    .add("manga", mangaId)
-                    .build()
-                val ajaxReq = POST(ajaxUrl, headers, formBody)
-                val ajaxRes = client.newCall(ajaxReq).awaitSuccess()
-                val ajaxDoc = Jsoup.parse(ajaxRes.body.string(), baseUrl)
-                chapterElements = ajaxDoc.select("li.wp-manga-chapter")
-            }
+        val document = client.newCall(GET("$baseUrl${manga.url}", headers)).awaitSuccess().let {
+            Jsoup.parse(it.body.string(), baseUrl)
         }
 
-        return chapterElements.mapNotNull { parseChapter(it) }
+        val chapters = mutableListOf<SChapter>()
+        val mangaId = document.selectFirst("#manga-chapters-holder")?.attr("data-id")
+
+        if (!mangaId.isNullOrEmpty()) {
+            val body = FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build()
+            val ajaxResp = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).awaitSuccess()
+            val ajaxDoc = Jsoup.parse(ajaxResp.body.string(), baseUrl)
+            parseChapterElements(ajaxDoc, chapters)
+        }
+
+        if (chapters.isEmpty()) {
+            parseChapterElements(document, chapters)
+        }
+
+        return chapters
     }
 
-    private fun parseChapter(element: Element): SChapter? {
-        val link = element.selectFirst("a") ?: return null
-        return SChapter.create().apply {
-            url = link.attr("href").substringAfter(baseUrl)
-            name = link.text().trim()
-            val dateText = element.selectFirst("span.chapter-release-date, .c-new-tag")?.text()?.trim()
-            if (!dateText.isNullOrBlank()) {
-                date_upload = runCatching {
-                    dateFormat.parse(dateText)?.time ?: 0L
-                }.getOrDefault(0L)
+    private fun parseChapterElements(document: Document, chapters: MutableList<SChapter>) {
+        val elements = document.select("li.wp-manga-chapter, .chapter-item")
+        for (element in elements) {
+            val link = element.selectFirst("a") ?: continue
+            val chapter = SChapter.create().apply {
+                url = link.attr("href").substringAfter(baseUrl)
+                name = link.text().trim()
+                val dateText = element.selectFirst("span.chapter-release-date, .c-new-tag")?.text()?.trim()
+                date_upload = parseChapterDate(dateText)
             }
+            chapters.add(chapter)
+        }
+    }
+
+    private fun parseChapterDate(dateStr: String?): Long {
+        if (dateStr.isNullOrBlank()) return 0L
+        return try {
+            dateFormat.parse(dateStr)?.time ?: 0L
+        } catch (_: Exception) {
+            0L
         }
     }
 
     // ------------------------------------------------------------------------------------
-    // Page list (Images) - Safe implementation without Android WebView crash
+    // Page List & Reader Implementation
     // ------------------------------------------------------------------------------------
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
-        val response = client.newCall(GET(chapterUrl, headers)).awaitSuccess()
-        val document = Jsoup.parse(response.body.string(), baseUrl)
+        val document = client.newCall(GET(chapterUrl, headers)).awaitSuccess().let {
+            Jsoup.parse(it.body.string(), baseUrl)
+        }
 
-        // 1. Kiểm tra xem có phải Reader MSR v3 không
+        // 1. Kiểm tra MSR v3 Reader (.msr-reader[data-msr-api])
         val msr3Element = document.selectFirst(".msr-reader[data-msr-api]")
         if (msr3Element != null) {
             return getMsr3Pages(msr3Element, chapterUrl)
         }
 
-        // 2. Kiểm tra xem có phải Reader MASR v2 không
+        // 2. Kiểm tra MASR v2 Reader (.masr2-reader[data-masr2-token])
         val masr2Element = document.selectFirst(".masr2-reader[data-masr2-token]")
         if (masr2Element != null) {
             return getMasr2Pages(masr2Element, chapterUrl)
         }
 
-        // 3. Reader Madara tiêu chuẩn (các chương mới sau 66)
-        val imageElements = document.select(".page-break img, .reading-content img, .wp-manga-chapter-img")
-        if (imageElements.isNotEmpty()) {
-            return imageElements.mapIndexed { index, img ->
-                val imageUrl = img.attr("abs:data-src")
-                    .ifBlank { img.attr("abs:src") }
-                    .ifBlank { img.attr("abs:data-full-url") }
-                Page(index, chapterUrl, imageUrl)
+        // 3. Fallback: Parse ảnh HTML tiêu chuẩn của Madara CMS
+        val images = document.select(".reading-content img, .page-break img, .wp-manga-chapter-img")
+        if (images.isNotEmpty()) {
+            return images.mapIndexed { index, img ->
+                val src = img.attr("abs:data-src").ifBlank { img.attr("abs:src") }.trim()
+                Page(index, chapterUrl, src)
             }
         }
 
-        throw Exception("Không tìm thấy hình ảnh chương hoặc cơ chế đọc không được hỗ trợ.")
+        throw Exception("Không tìm thấy trang đọc hoặc cơ chế reader trên chương này.")
     }
 
     private suspend fun getMsr3Pages(msr3Element: Element, chapterUrl: String): List<Page> {
         val mangaId = msr3Element.attr("data-msr-manga").toIntOrNull()
-            ?: throw Exception("Không tìm thấy Manga ID trong MSR reader")
+            ?: throw Exception("Không tìm thấy manga ID trong reader element")
         val chapterId = msr3Element.attr("data-msr-chapter").toIntOrNull()
-            ?: throw Exception("Không tìm thấy Chapter ID trong MSR reader")
+            ?: throw Exception("Không tìm thấy chapter ID trong reader element")
         val apiEndpoint = msr3Element.attr("data-msr-api").ifEmpty { "/wp-json/manga-reader/v3/" }
 
         val baseApiUrl = if (apiEndpoint.startsWith("http")) {
-            apiEndpoint.trimEnd('/')
+            apiEndpoint.removeSuffix("/")
         } else {
-            "$baseUrl${if (apiEndpoint.startsWith("/")) "" else "/"}${apiEndpoint.trimEnd('/')}"
+            "$baseUrl${if (apiEndpoint.startsWith("/")) "" else "/"}${apiEndpoint.removeSuffix("/")}"
         }
 
         val apiHeaders = headersBuilder()
@@ -414,32 +433,38 @@ class CBHentai : HttpSource(), ConfigurableSource {
             .build()
 
         val pagesPayload = json.encodeToString(MsrPagesRequest(manga = mangaId, chapter = chapterId))
-        val pagesRequest = Request.Builder()
+        val pagesReq = Request.Builder()
             .url("$baseApiUrl/pages")
             .headers(apiHeaders)
-            .post(pagesPayload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .post(pagesPayload.toRequestBody("application/json".toMediaType()))
             .build()
 
-        val pagesResponse = client.newCall(pagesRequest).awaitSuccess()
-        val responseBody = pagesResponse.body.string()
-
-        if (pagesResponse.code == 401 || responseBody.contains("msr_verify_required")) {
-            // Thay vì gọi getTurnstileToken làm crash Suwayomi:
+        val response = client.newCall(pagesReq).execute()
+        if (response.code == 401) {
+            response.close()
+            // Cloudflare Turnstile token required by MSR v3
             throw Exception(
-                "Chapter này được bảo vệ bởi Cloudflare Turnstile (MSR v3). " +
-                "Vui lòng mở link chapter trên trình duyệt máy tính, tick xác minh 1 lần rồi dán Cookie vào Cài đặt extension!"
+                "Chương này yêu cầu xác minh Cloudflare Turnstile (MSR v3).\n" +
+                "Vui lòng mở web trên trình duyệt hoặc cài đặt Cookie xác minh trong Settings extension để đọc tiếp."
             )
         }
 
-        val data = json.decodeFromString<MsrPagesResponse>(responseBody)
+        if (!response.isSuccessful) {
+            val code = response.code
+            response.close()
+            throw Exception("MSR v3 API trả về lỗi HTTP $code")
+        }
+
+        val body = response.body.string()
+        val data = json.decodeFromString<MsrPagesResponse>(body)
         return data.items.mapIndexed { index, imageUrl ->
             Page(index, chapterUrl, imageUrl)
         }
     }
 
-    private suspend fun getMasr2Pages(masr2Element: Element, chapterUrl: String): List<Page> {
-        val token = masr2Element.attr("data-masr2-token")
-        if (token.isBlank()) throw Exception("Không tìm thấy MASR2 token")
+    private suspend fun getMasr2Pages(readerElement: Element, chapterUrl: String): List<Page> {
+        val token = readerElement.attr("data-masr2-token")
+        if (token.isEmpty()) throw Exception("Không tìm thấy token trong reader element")
 
         val clientId = generateClientId()
         val apiHeaders = headersBuilder()
@@ -481,76 +506,52 @@ class CBHentai : HttpSource(), ConfigurableSource {
     }
 
     // ------------------------------------------------------------------------------------
-    // Preferences Screen
+    // Preference Screen
     // ------------------------------------------------------------------------------------
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        SwitchPreferenceCompat(screen.context).apply {
-            key = FLARESOLVERR_ENABLE_KEY
-            title = "Tự động vượt Cloudflare qua FlareSolverr"
-            summary = "Tự động giải Cloudflare bằng FlareSolverr khi trang web chặn request."
-            setDefaultValue(DEFAULT_FLARESOLVERR_ENABLE)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(FLARESOLVERR_ENABLE_KEY, newValue as Boolean).apply()
-                true
-            }
-        }.also(screen::addPreference)
+        val context = screen.context
 
-        EditTextPreference(screen.context).apply {
-            key = FLARESOLVERR_URL_KEY
-            title = "FlareSolverr API URL"
-            summary = "Mặc định: $DEFAULT_FLARESOLVERR_URL."
-            dialogTitle = "FlareSolverr URL"
-            setDefaultValue(DEFAULT_FLARESOLVERR_URL)
-            setOnPreferenceChangeListener { _, newValue ->
-                val str = (newValue as String).trim()
-                preferences.edit().putString(FLARESOLVERR_URL_KEY, str).apply()
-                true
-            }
-        }.also(screen::addPreference)
-
-        EditTextPreference(screen.context).apply {
+        EditTextPreference(context).apply {
             key = CUSTOM_BASE_URL_KEY
-            title = "Tên miền (Base URL)"
-            summary = "Mặc định: $DEFAULT_BASE_URL. Đổi khi trang web đổi tên miền mới."
-            dialogTitle = "Tên miền trang web"
+            title = "Tùy chỉnh tên miền nguồn"
+            summary = "Mặc định: $DEFAULT_BASE_URL (Đổi khi website đổi sang domain mới)"
             setDefaultValue(DEFAULT_BASE_URL)
-            setOnPreferenceChangeListener { _, newValue ->
-                val str = (newValue as String).trim().trimEnd('/')
-                preferences.edit().putString(CUSTOM_BASE_URL_KEY, str).apply()
-                true
-            }
+            dialogTitle = "Nhập URL nguồn"
         }.also(screen::addPreference)
 
-        EditTextPreference(screen.context).apply {
+        SwitchPreferenceCompat(context).apply {
+            key = FLARESOLVERR_ENABLE_KEY
+            title = "Bật tự động vượt Cloudflare qua FlareSolverr"
+            summary = "Tự động bắt lỗi 403 và gửi yêu cầu giải Cloudflare tới máy chủ FlareSolverr"
+            setDefaultValue(DEFAULT_FLARESOLVERR_ENABLE)
+        }.also(screen::addPreference)
+
+        EditTextPreference(context).apply {
+            key = FLARESOLVERR_URL_KEY
+            title = "Địa chỉ máy chủ FlareSolverr"
+            summary = "Mặc định: $DEFAULT_FLARESOLVERR_URL"
+            setDefaultValue(DEFAULT_FLARESOLVERR_URL)
+            dialogTitle = "Nhập URL FlareSolverr"
+        }.also(screen::addPreference)
+
+        EditTextPreference(context).apply {
             key = CUSTOM_COOKIE_KEY
-            title = "Cookie xác minh (MSR / Cloudflare)"
-            summary = "Dán cookie từ trình duyệt sau khi tick Turnstile trên web nếu chapter cũ bị khóa."
-            dialogTitle = "Cookie xác minh"
-            setDefaultValue("")
-            setOnPreferenceChangeListener { _, newValue ->
-                val str = (newValue as String).trim()
-                preferences.edit().putString(CUSTOM_COOKIE_KEY, str).apply()
-                true
-            }
+            title = "Tùy chỉnh Cookie (cf_clearance, cf_turnstile,...)"
+            summary = "Nhập chuỗi cookie nếu muốn chỉ định thủ công"
+            dialogTitle = "Nhập chuỗi Cookie"
         }.also(screen::addPreference)
 
-        EditTextPreference(screen.context).apply {
+        EditTextPreference(context).apply {
             key = CUSTOM_USER_AGENT_KEY
-            title = "User-Agent tùy chỉnh"
-            summary = "Mặc định để trống để tự động lấy từ FlareSolverr hoặc cài đặt Mihon."
-            dialogTitle = "User-Agent"
-            setDefaultValue("")
-            setOnPreferenceChangeListener { _, newValue ->
-                val str = (newValue as String).trim()
-                preferences.edit().putString(CUSTOM_USER_AGENT_KEY, str).apply()
-                true
-            }
+            title = "Tùy chỉnh User-Agent"
+            summary = "Khớp với User-Agent của trình duyệt khi lấy Cookie thủ công"
+            dialogTitle = "Nhập User-Agent"
         }.also(screen::addPreference)
     }
 
     // ------------------------------------------------------------------------------------
-    // Unsupported default methods
+    // Unsupported Legacy Observables
     // ------------------------------------------------------------------------------------
 
     override fun popularMangaRequest(page: Int): Request = throw UnsupportedOperationException()

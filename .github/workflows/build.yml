@@ -101,8 +101,8 @@ jobs:
             VERSION_ID2="1"
           fi
 
-          # 3. Metadata CBHentai
-          PKG3="eu.kanade.tachiyomi.extension.vi.cbhentai"
+          # 3. Metadata CBHentai (hentaicube)
+          PKG3="eu.kanade.tachiyomi.extension.vi.hentaicube"
           NAME3="CBHentai"
           LANG3="vi"
           VERSION_CODE3=$(grep -m1 'val extVersionCode' cbhentai/build.gradle.kts | sed -E 's/[^0-9]*([0-9]+).*/\1/')
@@ -111,7 +111,7 @@ jobs:
           if [ -z "$VERSION_NAME3" ]; then
             VERSION_NAME3="${LIB_VERSION3}.${VERSION_CODE3}"
           fi
-          SOURCE_KT3="cbhentai/src/main/java/eu/kanade/tachiyomi/extension/vi/cbhentai/CBHentai.kt"
+          SOURCE_KT3="cbhentai/src/main/java/eu/kanade/tachiyomi/extension/vi/hentaicube/HentaiCB.kt"
           VERSION_ID3=$(grep -m1 'override val versionId' "$SOURCE_KT3" | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           if [ -z "$VERSION_ID3" ]; then
             VERSION_ID3="1"
