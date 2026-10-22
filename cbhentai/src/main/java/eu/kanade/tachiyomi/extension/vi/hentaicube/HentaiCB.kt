@@ -336,15 +336,6 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         return updated
     }
 
-    override suspend fun getChapterList(manga: SManga): List<SChapter> = getChapterListInternal(manga)
-
-    override fun chapterListRequest(manga: SManga): Request = GET("$baseUrl${manga.url}", headers)
-
-    override fun chapterListParse(response: Response): List<SChapter> = runBlocking {
-        val path = response.request.url.encodedPath
-        getChapterListInternal(SManga.create().apply { url = path })
-    }
-
     private suspend fun getChapterListInternal(manga: SManga): List<SChapter> {
         val mangaUrl = manga.url
         val mangaPath = if (mangaUrl.startsWith("http")) {
