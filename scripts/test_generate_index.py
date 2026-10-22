@@ -5,6 +5,7 @@ repo.json / index.json -- Mihon and Suwayomi both read the new schema directly).
 Run: python3 scripts/test_generate_index.py
 """
 import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -241,6 +242,55 @@ class CliEndToEndTests(unittest.TestCase):
             pb_bytes = (out / "index.pb").read_bytes()
             fields = decode_message(pb_bytes)
             self.assertEqual(s(fields[gi.PB_STORE_SIGNKEY][0]), "cd" * 32)
+
+    def test_multi_extension_json_produces_both_extensions(self):
+        with tempfile.TemporaryDirectory() as out_dir:
+            json_path = Path(out_dir) / "manifest.json"
+            json_path.write_text(
+                json.dumps([
+                    {
+                        "name": "SuicaoDex",
+                        "pkg": "eu.kanade.tachiyomi.extension.vi.suicaodex",
+                        "lang": "vi",
+                        "nsfw": True,
+                        "version_code": 7,
+                        "version_name": "1.6.7",
+                        "lib_version": "1.6",
+                        "version_id": 1,
+                        "base_url": "https://suicaodex.com",
+                    },
+                    {
+                        "name": "Góc Truyện Tranh Vui",
+                        "pkg": "eu.kanade.tachiyomi.extension.vi.goctruyentranhvui",
+                        "lang": "vi",
+                        "nsfw": True,
+                        "version_code": 1,
+                        "version_name": "1.6.1",
+                        "lib_version": "1.6",
+                        "version_id": 1,
+                        "base_url": "https://goctruyentranhvui30.com",
+                    },
+                ]),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    sys.executable, str(Path(__file__).parent / "generate_index.py"),
+                    "--extensions-json", str(json_path),
+                    "--repo-name", "VN Extensions",
+                    "--badge-label", "VN",
+                    "--website", "https://github.com/owner/repo",
+                    "--signing-fingerprint", "ab" * 32,
+                    "--raw-base-url", "https://raw.githubusercontent.com/owner/repo/repo",
+                    "--out-dir", out_dir,
+                ],
+                check=True, capture_output=True, text=True,
+            )
+            index_json = json.loads((Path(out_dir) / "index.json").read_text(encoding="utf-8"))
+            exts = index_json["extensionList"]["extensions"]
+            self.assertEqual(len(exts), 2)
+            self.assertEqual(exts[0]["packageName"], "eu.kanade.tachiyomi.extension.vi.suicaodex")
+            self.assertEqual(exts[1]["packageName"], "eu.kanade.tachiyomi.extension.vi.goctruyentranhvui")
 
 
 if __name__ == "__main__":

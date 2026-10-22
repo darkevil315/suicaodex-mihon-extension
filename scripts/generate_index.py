@@ -206,13 +206,13 @@ def encode_new_schema_protobuf(store: dict) -> bytes:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pkg", required=True)
-    parser.add_argument("--name", required=True)
-    parser.add_argument("--lang", required=True)
+    parser.add_argument("--pkg", required=False)
+    parser.add_argument("--name", required=False)
+    parser.add_argument("--lang", required=False)
     parser.add_argument("--nsfw", type=int, default=0)
-    parser.add_argument("--code", type=int, required=True)
-    parser.add_argument("--version", required=True, help="versionName, e.g. 1.6.1")
-    parser.add_argument("--lib-version", required=True, help="e.g. 1.6 (tachiyomix lib version)")
+    parser.add_argument("--code", type=int, required=False)
+    parser.add_argument("--version", required=False, help="versionName, e.g. 1.6.1")
+    parser.add_argument("--lib-version", required=False, help="e.g. 1.6 (tachiyomix lib version)")
     parser.add_argument("--version-id", type=int, default=1)
     parser.add_argument("--base-url", default="https://suicaodex.com", help="the manga site's own base URL")
     parser.add_argument("--repo-name", default="SuicaoDex")
@@ -224,20 +224,42 @@ def main() -> None:
     parser.add_argument("--raw-base-url", required=True,
                          help="raw.githubusercontent.com/<owner>/<repo>/repo -- base for apk/icon links")
     parser.add_argument("--out-dir", required=True)
+    parser.add_argument("--extensions-json", default=None,
+                         help="Path to JSON file containing a list of extension dictionaries")
     args = parser.parse_args()
 
-    ext = ExtensionInfo(
-        name=args.name,
-        pkg=args.pkg,
-        lang=args.lang,
-        nsfw=bool(args.nsfw),
-        version_code=args.code,
-        version_name=args.version,
-        lib_version=args.lib_version,
-        version_id=args.version_id,
-        base_url=args.base_url,
-        apk_filename=f"{args.pkg}.apk",
-    )
+    extensions: list[ExtensionInfo] = []
+    if args.extensions_json:
+        with open(args.extensions_json, "r", encoding="utf-8") as f:
+            raw_exts = json.load(f)
+            for item in raw_exts:
+                extensions.append(ExtensionInfo(
+                    name=item["name"],
+                    pkg=item["pkg"],
+                    lang=item.get("lang", "vi"),
+                    nsfw=bool(item.get("nsfw", False)),
+                    version_code=item["version_code"],
+                    version_name=item["version_name"],
+                    lib_version=item.get("lib_version", "1.6"),
+                    version_id=item.get("version_id", 1),
+                    base_url=item.get("base_url", "https://suicaodex.com"),
+                    apk_filename=item.get("apk_filename", f"{item['pkg']}.apk"),
+                ))
+    else:
+        if not args.pkg or not args.name or args.code is None or not args.version or not args.lib_version:
+            parser.error("Either --extensions-json or (--pkg, --name, --lang, --code, --version, --lib-version) required")
+        extensions.append(ExtensionInfo(
+            name=args.name,
+            pkg=args.pkg,
+            lang=args.lang or "vi",
+            nsfw=bool(args.nsfw),
+            version_code=args.code,
+            version_name=args.version,
+            lib_version=args.lib_version,
+            version_id=args.version_id,
+            base_url=args.base_url,
+            apk_filename=f"{args.pkg}.apk",
+        ))
 
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -247,7 +269,7 @@ def main() -> None:
         signing_key=args.signing_fingerprint,
         website=args.website,
         discord=args.discord,
-        extensions=[ext],
+        extensions=extensions,
         apk_base_url=f"{args.raw_base_url}/apk",
         icon_base_url=f"{args.raw_base_url}/icon",
     )
