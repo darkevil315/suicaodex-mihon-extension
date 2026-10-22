@@ -11,7 +11,7 @@ plugins {
 val extName = "CBHentai"
 val pkgNameSuffix = "vi.hentaicube"
 val extClass = ".HentaiCB"
-val extVersionCode = 10699
+val extVersionCode = 106999
 val extVersionName = "1.6.99"
 val libVersion = "1.6"
 
