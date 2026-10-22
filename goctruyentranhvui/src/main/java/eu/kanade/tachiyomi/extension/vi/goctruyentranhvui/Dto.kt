@@ -91,3 +91,36 @@ class MangaDto(
 class ImageListDto(
     val data: List<String>? = null,
 )
+
+// ------------------------------------------------------------------------------------
+// FlareSolverr API Models
+// ------------------------------------------------------------------------------------
+
+@Serializable
+class FlareSolverrRequest(
+    val cmd: String = "request.get",
+    val url: String,
+    val maxTimeout: Int = 60000,
+)
+
+@Serializable
+class FlareSolverrResponse(
+    val status: String? = null,
+    val message: String? = null,
+    val solution: FlareSolverrSolution? = null,
+)
+
+@Serializable
+class FlareSolverrSolution(
+    val url: String? = null,
+    val status: Int? = null,
+    val cookies: List<FlareSolverrCookie>? = null,
+    val userAgent: String? = null,
+)
+
+@Serializable
+class FlareSolverrCookie(
+    val name: String,
+    val value: String,
+)
+

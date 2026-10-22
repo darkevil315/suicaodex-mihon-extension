@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.text.InputType
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
@@ -18,18 +19,22 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.util.concurrent.TimeUnit
 
 class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
 
@@ -54,17 +59,93 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         isLenient = true
     }
 
+    private val flareLock = Any()
+    private var lastSolvedTimestamp: Long = 0L
+
+    private val flareClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(65, TimeUnit.SECONDS)
+            .readTimeout(65, TimeUnit.SECONDS)
+            .writeTimeout(65, TimeUnit.SECONDS)
+            .build()
+    }
+
     override val client: OkHttpClient = network.client.newBuilder()
         .addInterceptor(::authInterceptor)
         .build()
 
+    private fun isCloudflareChallenge(response: Response): Boolean {
+        if (response.code in listOf(403, 503)) return true
+        if (response.header("cf-mitigated") == "challenge") return true
+        val peek = try {
+            response.peekBody(2048).string()
+        } catch (_: Exception) {
+            ""
+        }
+        return peek.startsWith("<") && (
+            peek.contains("Just a moment", ignoreCase = true) ||
+            peek.contains("challenge-running", ignoreCase = true) ||
+            peek.contains("cf-browser-verification", ignoreCase = true) ||
+            peek.contains("cf-mitigated", ignoreCase = true)
+        )
+    }
+
+    private fun solveCloudflare(targetUrl: String) {
+        val flareUrl = preferences.getString(FLARESOLVERR_URL_KEY, DEFAULT_FLARESOLVERR_URL)
+            ?.trim()?.ifBlank { DEFAULT_FLARESOLVERR_URL } ?: DEFAULT_FLARESOLVERR_URL
+
+        val payload = json.encodeToString(
+            FlareSolverrRequest(
+                cmd = "request.get",
+                url = targetUrl,
+                maxTimeout = 60000,
+            ),
+        )
+
+        val flareReq = Request.Builder()
+            .url(flareUrl)
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        try {
+            flareClient.newCall(flareReq).execute().use { flareRes ->
+                if (!flareRes.isSuccessful) {
+                    throw Exception("FlareSolverr trả về HTTP ${flareRes.code}")
+                }
+                val bodyString = flareRes.body.string()
+                val flareResponse = json.decodeFromString<FlareSolverrResponse>(bodyString)
+                if (flareResponse.status != "ok") {
+                    throw Exception("FlareSolverr không giải được: ${flareResponse.message}")
+                }
+                val solution = flareResponse.solution ?: throw Exception("FlareSolverr không trả về solution")
+                val cookies = solution.cookies?.joinToString("; ") { "${it.name}=${it.value}" }
+                val ua = solution.userAgent
+
+                preferences.edit().apply {
+                    if (!cookies.isNullOrBlank()) {
+                        putString(AUTO_FLARE_COOKIE_KEY, cookies)
+                    }
+                    if (!ua.isNullOrBlank()) {
+                        putString(AUTO_FLARE_UA_KEY, ua)
+                    }
+                    apply()
+                }
+                lastSolvedTimestamp = System.currentTimeMillis()
+            }
+        } catch (e: Exception) {
+            throw Exception("Không thể kết nối hoặc giải qua FlareSolverr ($flareUrl): ${e.localizedMessage ?: e.message}")
+        }
+    }
+
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val customUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
+            ?: preferences.getString(AUTO_FLARE_UA_KEY, null)?.trim()?.ifBlank { null }
         val token = preferences.getString(CUSTOM_TOKEN_KEY, null)?.trim()?.ifBlank { null }
         val customCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+            ?: preferences.getString(AUTO_FLARE_COOKIE_KEY, null)?.trim()?.ifBlank { null }
 
-        val newRequest = request.newBuilder().apply {
+        val initialRequest = request.newBuilder().apply {
             if (customUA != null) {
                 header("User-Agent", customUA)
             }
@@ -77,15 +158,52 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
             }
         }.build()
 
-        return chain.proceed(newRequest)
+        val response = chain.proceed(initialRequest)
+
+        val flareEnabled = preferences.getBoolean(FLARESOLVERR_ENABLE_KEY, DEFAULT_FLARESOLVERR_ENABLE)
+        if (!flareEnabled || !isCloudflareChallenge(response)) {
+            return response
+        }
+
+        // Bị Cloudflare chặn & FlareSolverr đang được bật -> Tự động giải và retry
+        return synchronized(flareLock) {
+            val now = System.currentTimeMillis()
+            if (now - lastSolvedTimestamp > 10_000L) {
+                solveCloudflare("$baseUrl/")
+            }
+
+            response.close()
+
+            val retryUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
+                ?: preferences.getString(AUTO_FLARE_UA_KEY, null)?.trim()?.ifBlank { null }
+            val retryCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+                ?: preferences.getString(AUTO_FLARE_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+
+            val retryRequest = request.newBuilder().apply {
+                if (retryUA != null) {
+                    header("User-Agent", retryUA)
+                }
+                if (retryCookie != null) {
+                    header("Cookie", retryCookie)
+                }
+                if (request.url.encodedPath.startsWith("/api/")) {
+                    header("X-Requested-With", "XMLHttpRequest")
+                    token?.let { header("Authorization", it) }
+                }
+            }.build()
+
+            chain.proceed(retryRequest)
+        }
     }
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder().apply {
         val customUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
+            ?: preferences.getString(AUTO_FLARE_UA_KEY, null)?.trim()?.ifBlank { null }
         if (customUA != null) {
             set("User-Agent", customUA)
         }
         val customCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+            ?: preferences.getString(AUTO_FLARE_COOKIE_KEY, null)?.trim()?.ifBlank { null }
         if (customCookie != null) {
             set("Cookie", customCookie)
         }
@@ -146,7 +264,7 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         val response = client.newCall(GET(url, xhrHeaders)).awaitSuccess()
         val body = response.body.string()
         if (body.startsWith("<") || response.code == 403) {
-            throw Exception("Bị chặn bởi Cloudflare (Turnstile). Hãy kiểm tra User-Agent trong Cài đặt Mihon hoặc dán Cookie/Token trong Cài đặt extension.")
+            throw Exception("Bị chặn bởi Cloudflare (Turnstile). Hãy bật FlareSolverr (http://127.0.0.1:8191) trên PC/Suwayomi hoặc mở WebView trên Mihon.")
         }
         val res = json.decodeFromString<ResultDto<ListingDto>>(body)
         val result = res.result ?: throw Exception(res.errorMessage ?: "Không thể tải danh sách truyện")
@@ -310,6 +428,30 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
     // ------------------------------------------------------------------------------------
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        SwitchPreferenceCompat(screen.context).apply {
+            key = FLARESOLVERR_ENABLE_KEY
+            title = "Tự động vượt Cloudflare qua FlareSolverr"
+            summary = "Tự động kết nối tới FlareSolverr để giải Cloudflare và tự động lưu/làm mới cookie khi bị chặn."
+            setDefaultValue(DEFAULT_FLARESOLVERR_ENABLE)
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putBoolean(FLARESOLVERR_ENABLE_KEY, newValue as Boolean).apply()
+                true
+            }
+        }.also(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
+            key = FLARESOLVERR_URL_KEY
+            title = "FlareSolverr API URL"
+            summary = "Mặc định: $DEFAULT_FLARESOLVERR_URL. Nếu dùng điện thoại kết nối tới máy tính chạy FlareSolverr, đổi 127.0.0.1 thành IP LAN máy tính."
+            dialogTitle = "FlareSolverr URL"
+            setDefaultValue(DEFAULT_FLARESOLVERR_URL)
+            setOnPreferenceChangeListener { _, newValue ->
+                val str = (newValue as String).trim()
+                preferences.edit().putString(FLARESOLVERR_URL_KEY, str).apply()
+                true
+            }
+        }.also(screen::addPreference)
+
         EditTextPreference(screen.context).apply {
             key = CUSTOM_BASE_URL_KEY
             title = "Tên miền (Base URL)"
@@ -325,8 +467,8 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
 
         EditTextPreference(screen.context).apply {
             key = CUSTOM_COOKIE_KEY
-            title = "Cookie (cf_clearance)"
-            summary = "Dán giá trị cf_clearance hoặc toàn bộ cookie lấy từ trình duyệt nếu WebView bị kẹt."
+            title = "Cookie (cf_clearance thủ công)"
+            summary = "Dán thủ công nếu không dùng FlareSolverr hoặc muốn ghi đè cookie phiên."
             dialogTitle = "Cookie vượt Cloudflare"
             setDefaultValue("")
             setOnPreferenceChangeListener { _, newValue ->
@@ -355,7 +497,7 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         EditTextPreference(screen.context).apply {
             key = CUSTOM_USER_AGENT_KEY
             title = "User-Agent tùy chỉnh"
-            summary = "Mặc định để trống để tự động dùng User-Agent chuẩn từ Cài đặt Mihon -> Nâng cao."
+            summary = "Mặc định để trống để tự động lấy User-Agent từ FlareSolverr hoặc cài đặt Mihon."
             dialogTitle = "User-Agent"
             setDefaultValue("")
             setOnPreferenceChangeListener { _, newValue ->
@@ -382,6 +524,15 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
     companion object {
         private const val CUSTOM_BASE_URL_KEY = "custom_base_url"
         private const val DEFAULT_BASE_URL = "https://goctruyentranhvui30.com"
+
+        private const val FLARESOLVERR_ENABLE_KEY = "flaresolverr_enable"
+        private const val DEFAULT_FLARESOLVERR_ENABLE = true
+
+        private const val FLARESOLVERR_URL_KEY = "flaresolverr_url"
+        private const val DEFAULT_FLARESOLVERR_URL = "http://127.0.0.1:8191/v1"
+
+        private const val AUTO_FLARE_COOKIE_KEY = "auto_flare_cookie"
+        private const val AUTO_FLARE_UA_KEY = "auto_flare_ua"
 
         private const val CUSTOM_COOKIE_KEY = "custom_cookie"
         private const val CUSTOM_USER_AGENT_KEY = "custom_user_agent"
