@@ -91,7 +91,10 @@ jobs:
           LANG2="vi"
           VERSION_CODE2=$(grep -m1 'val extVersionCode' goctruyentranhvui/build.gradle.kts | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           LIB_VERSION2=$(grep -m1 'val libVersion' goctruyentranhvui/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
-          VERSION_NAME2="${LIB_VERSION2}.${VERSION_CODE2}"
+          VERSION_NAME2=$(grep -m1 'val extVersionName' goctruyentranhvui/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$VERSION_NAME2" ]; then
+            VERSION_NAME2="${LIB_VERSION2}.${VERSION_CODE2}"
+          fi
           SOURCE_KT2="goctruyentranhvui/src/main/java/eu/kanade/tachiyomi/extension/vi/goctruyentranhvui/GocTruyenTranhVui.kt"
           VERSION_ID2=$(grep -m1 'override val versionId' "$SOURCE_KT2" | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           if [ -z "$VERSION_ID2" ]; then

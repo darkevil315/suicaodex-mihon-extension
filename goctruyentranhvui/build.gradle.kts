@@ -11,8 +11,9 @@ plugins {
 val extName = "Góc Truyện Tranh Vui"
 val pkgNameSuffix = "vi.goctruyentranhvui"
 val extClass = ".GocTruyenTranhVui"
-val extVersionCode = 3
-val libVersion = "1.6"
+val extVersionCode = 107003
+val extVersionName = "1.7.3"
+val libVersion = "1.7"
 
 val tachiyomixVersion = "1.6.0"
 
@@ -25,7 +26,7 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = extVersionCode
-        versionName = "$libVersion.$extVersionCode"
+        versionName = extVersionName
 
         manifestPlaceholders["appName"] = "$extName"
         manifestPlaceholders["extClass"] = extClass
