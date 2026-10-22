@@ -179,14 +179,13 @@ class HentaiCB : HttpSource(), ConfigurableSource {
 
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val (customUA, customCookie) = customPair() ?: autoPair()
-
+        // Request đầu tiên: giữ nguyên như keiyoushi (UA/cookie mặc định của client).
+        // Chỉ gắn cặp thủ công nếu người dùng nhập đủ cả cookie lẫn UA hợp lệ.
+        val manual = customPair()
         val initialRequest = request.newBuilder().apply {
-            if (customUA != null) {
-                header("User-Agent", customUA)
-            }
-            if (customCookie != null) {
-                header("Cookie", customCookie)
+            if (manual != null) {
+                header("User-Agent", manual.first!!)
+                header("Cookie", manual.second!!)
             }
         }.build()
 
