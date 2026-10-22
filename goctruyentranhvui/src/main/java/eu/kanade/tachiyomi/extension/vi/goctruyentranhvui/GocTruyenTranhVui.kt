@@ -60,13 +60,17 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
 
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val userAgent = preferences.getString(CUSTOM_USER_AGENT_KEY, DEFAULT_USER_AGENT)
-            ?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_USER_AGENT
-        val token = preferences.getString(CUSTOM_TOKEN_KEY, null)
-            ?.trim()?.takeIf { it.isNotBlank() }
+        val customUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
+        val token = preferences.getString(CUSTOM_TOKEN_KEY, null)?.trim()?.ifBlank { null }
+        val customCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
 
         val newRequest = request.newBuilder().apply {
-            header("User-Agent", userAgent)
+            if (customUA != null) {
+                header("User-Agent", customUA)
+            }
+            if (customCookie != null) {
+                header("Cookie", customCookie)
+            }
             if (request.url.encodedPath.startsWith("/api/")) {
                 header("X-Requested-With", "XMLHttpRequest")
                 token?.let { header("Authorization", it) }
@@ -77,9 +81,14 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
     }
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder().apply {
-        val userAgent = preferences.getString(CUSTOM_USER_AGENT_KEY, DEFAULT_USER_AGENT)
-            ?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_USER_AGENT
-        set("User-Agent", userAgent)
+        val customUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
+        if (customUA != null) {
+            set("User-Agent", customUA)
+        }
+        val customCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+        if (customCookie != null) {
+            set("Cookie", customCookie)
+        }
         set("Referer", "$baseUrl/")
     }
 
@@ -136,6 +145,9 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
 
         val response = client.newCall(GET(url, xhrHeaders)).awaitSuccess()
         val body = response.body.string()
+        if (body.startsWith("<") || response.code == 403) {
+            throw Exception("Bị chặn bởi Cloudflare (Turnstile). Hãy kiểm tra User-Agent trong Cài đặt Mihon hoặc dán Cookie/Token trong Cài đặt extension.")
+        }
         val res = json.decodeFromString<ResultDto<ListingDto>>(body)
         val result = res.result ?: throw Exception(res.errorMessage ?: "Không thể tải danh sách truyện")
         val mangas = result.data.map { it.toSManga(baseUrl) }
@@ -221,6 +233,9 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
 
         val response = client.newCall(GET(url, xhrHeaders)).awaitSuccess()
         val body = response.body.string()
+        if (body.startsWith("<") || response.code == 403) {
+            throw Exception("Bị chặn bởi Cloudflare (Turnstile). Hãy kiểm tra User-Agent trong Cài đặt Mihon hoặc dán Cookie/Token trong Cài đặt extension.")
+        }
         val res = json.decodeFromString<ResultDto<ChapterListDto>>(body)
         val chapters = res.result?.chapters
             ?: throw Exception(res.errorMessage ?: "Phiên làm việc đã hết hạn, vui lòng mở WebView hoặc kiểm tra kết nối.")
@@ -309,14 +324,14 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         }.also(screen::addPreference)
 
         EditTextPreference(screen.context).apply {
-            key = CUSTOM_USER_AGENT_KEY
-            title = "User-Agent"
-            summary = "User-Agent gửi đến máy chủ (Mặc định: Chrome Desktop sạch để tránh lỗi Cloudflare trên WebView)."
-            dialogTitle = "Tùy chỉnh User-Agent"
-            setDefaultValue(DEFAULT_USER_AGENT)
+            key = CUSTOM_COOKIE_KEY
+            title = "Cookie (cf_clearance)"
+            summary = "Dán giá trị cf_clearance hoặc toàn bộ cookie lấy từ trình duyệt nếu WebView bị kẹt."
+            dialogTitle = "Cookie vượt Cloudflare"
+            setDefaultValue("")
             setOnPreferenceChangeListener { _, newValue ->
                 val str = (newValue as String).trim()
-                preferences.edit().putString(CUSTOM_USER_AGENT_KEY, str).apply()
+                preferences.edit().putString(CUSTOM_COOKIE_KEY, str).apply()
                 true
             }
         }.also(screen::addPreference)
@@ -324,7 +339,7 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         EditTextPreference(screen.context).apply {
             key = CUSTOM_TOKEN_KEY
             title = "Authorization Token (Dán thủ công)"
-            summary = "Nhập token Authorization nếu lấy được từ F12 DevTools (Local Storage) để bypass captcha."
+            summary = "Nhập token Authorization nếu lấy được từ F12 DevTools (Local Storage)."
             dialogTitle = "Authorization Token"
             setDefaultValue("")
             setOnBindEditTextListener {
@@ -333,6 +348,19 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
             setOnPreferenceChangeListener { _, newValue ->
                 val str = (newValue as String).trim()
                 preferences.edit().putString(CUSTOM_TOKEN_KEY, str).apply()
+                true
+            }
+        }.also(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
+            key = CUSTOM_USER_AGENT_KEY
+            title = "User-Agent tùy chỉnh"
+            summary = "Mặc định để trống để tự động dùng User-Agent chuẩn từ Cài đặt Mihon -> Nâng cao."
+            dialogTitle = "User-Agent"
+            setDefaultValue("")
+            setOnPreferenceChangeListener { _, newValue ->
+                val str = (newValue as String).trim()
+                preferences.edit().putString(CUSTOM_USER_AGENT_KEY, str).apply()
                 true
             }
         }.also(screen::addPreference)
@@ -355,9 +383,8 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         private const val CUSTOM_BASE_URL_KEY = "custom_base_url"
         private const val DEFAULT_BASE_URL = "https://goctruyentranhvui30.com"
 
+        private const val CUSTOM_COOKIE_KEY = "custom_cookie"
         private const val CUSTOM_USER_AGENT_KEY = "custom_user_agent"
-        private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-
         private const val CUSTOM_TOKEN_KEY = "custom_token"
 
         private val COMIC_ID_REGEX = Regex("""id:\s*"([^"]+)"""")
