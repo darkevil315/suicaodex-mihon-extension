@@ -80,7 +80,7 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             .build()
     }
 
-    override val client: OkHttpClient = network.client.newBuilder()
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .addInterceptor(::authInterceptor)
         .build()
 
@@ -114,7 +114,7 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         val flareUrl = preferences.getString(FLARESOLVERR_URL_KEY, DEFAULT_FLARESOLVERR_URL)
             ?.trim()?.ifBlank { DEFAULT_FLARESOLVERR_URL } ?: DEFAULT_FLARESOLVERR_URL
 
-        val payload = """{"cmd":"request.get","url":"$targetUrl","maxTimeout":60000}"""
+        val payload = """{"cmd":"request.get","url":"$targetUrl","session":"suwayomi","maxTimeout":60000}"""
 
         val flareReq = Request.Builder()
             .url(flareUrl)
@@ -179,7 +179,12 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             try {
                 val now = System.currentTimeMillis()
                 if (now - lastSolvedTimestamp > 10_000L) {
-                    solveCloudflare("$baseUrl/")
+                    val targetUrl = if (request.url.toString().contains("ajax/chapters")) {
+                        request.url.toString().substringBefore("/ajax/chapters/") + "/"
+                    } else {
+                        request.url.toString()
+                    }
+                    solveCloudflare(targetUrl)
                 }
             } catch (_: Exception) {
                 return response
@@ -345,6 +350,11 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         }
         val pathWithSlash = if (mangaPath.startsWith("/")) mangaPath else "/$mangaPath"
 
+        val chapterHeaders = headersBuilder()
+            .set("X-Requested-With", "XMLHttpRequest")
+            .set("Referer", "$baseUrl$pathWithSlash/")
+            .build()
+
         val result = mutableListOf<SChapter>()
         var lastUrl: String? = null
         var page = 1
@@ -353,7 +363,7 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             val chapterAjaxUrl = "$baseUrl$pathWithSlash/ajax/chapters/?t=$page"
             val body = FormBody.Builder().build()
             val response = try {
-                client.newCall(POST(chapterAjaxUrl, xhrHeaders, body)).awaitSuccess()
+                client.newCall(POST(chapterAjaxUrl, chapterHeaders, body)).awaitSuccess()
             } catch (_: Exception) {
                 break
             }
@@ -372,21 +382,23 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         }
 
         if (result.isEmpty()) {
-            val document = client.newCall(GET("$baseUrl$pathWithSlash", headers)).awaitSuccess().let {
-                Jsoup.parse(it.body.string(), baseUrl)
-            }
-            val mangaId = document.selectFirst("#manga-chapters-holder")?.attr("data-id")
-            if (!mangaId.isNullOrEmpty()) {
-                val body = FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build()
-                try {
-                    val ajaxResp = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).awaitSuccess()
-                    val ajaxDoc = Jsoup.parse(ajaxResp.body.string(), baseUrl)
-                    parseChapterElements(ajaxDoc, result)
-                } catch (_: Exception) {}
-            }
-            if (result.isEmpty()) {
-                parseChapterElements(document, result)
-            }
+            try {
+                val document = client.newCall(GET("$baseUrl$pathWithSlash", headers)).awaitSuccess().let {
+                    Jsoup.parse(it.body.string(), baseUrl)
+                }
+                val mangaId = document.selectFirst("#manga-chapters-holder")?.attr("data-id")
+                if (!mangaId.isNullOrEmpty()) {
+                    val body = FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build()
+                    try {
+                        val ajaxResp = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).awaitSuccess()
+                        val ajaxDoc = Jsoup.parse(ajaxResp.body.string(), baseUrl)
+                        parseChapterElements(ajaxDoc, result)
+                    } catch (_: Exception) {}
+                }
+                if (result.isEmpty()) {
+                    parseChapterElements(document, result)
+                }
+            } catch (_: Exception) {}
         }
 
         return result
