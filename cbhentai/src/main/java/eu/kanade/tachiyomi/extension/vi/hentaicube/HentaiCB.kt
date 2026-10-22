@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -335,26 +336,69 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         return updated
     }
 
+    override suspend fun getChapterList(manga: SManga): List<SChapter> = getChapterListInternal(manga)
+
+    override fun chapterListRequest(manga: SManga): Request = GET("$baseUrl${manga.url}", headers)
+
+    override fun chapterListParse(response: Response): List<SChapter> = runBlocking {
+        val path = response.request.url.encodedPath
+        getChapterListInternal(SManga.create().apply { url = path })
+    }
+
     private suspend fun getChapterListInternal(manga: SManga): List<SChapter> {
-        val document = client.newCall(GET("$baseUrl${manga.url}", headers)).awaitSuccess().let {
-            Jsoup.parse(it.body.string(), baseUrl)
+        val mangaUrl = manga.url
+        val mangaPath = if (mangaUrl.startsWith("http")) {
+            mangaUrl.substringAfter(baseUrl).trimEnd('/')
+        } else {
+            mangaUrl.trimEnd('/')
+        }
+        val pathWithSlash = if (mangaPath.startsWith("/")) mangaPath else "/$mangaPath"
+
+        val result = mutableListOf<SChapter>()
+        var lastUrl: String? = null
+        var page = 1
+
+        while (true) {
+            val chapterAjaxUrl = "$baseUrl$pathWithSlash/ajax/chapters/?t=$page"
+            val body = FormBody.Builder().build()
+            val response = try {
+                client.newCall(POST(chapterAjaxUrl, xhrHeaders, body)).awaitSuccess()
+            } catch (_: Exception) {
+                break
+            }
+
+            val doc = Jsoup.parse(response.body.string(), baseUrl)
+            val pageChapters = mutableListOf<SChapter>()
+            parseChapterElements(doc, pageChapters)
+
+            if (pageChapters.isEmpty() || pageChapters.last().url == lastUrl) {
+                break
+            }
+
+            result.addAll(pageChapters)
+            lastUrl = pageChapters.last().url
+            page++
         }
 
-        val chapters = mutableListOf<SChapter>()
-        val mangaId = document.selectFirst("#manga-chapters-holder")?.attr("data-id")
-
-        if (!mangaId.isNullOrEmpty()) {
-            val body = FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build()
-            val ajaxResp = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).awaitSuccess()
-            val ajaxDoc = Jsoup.parse(ajaxResp.body.string(), baseUrl)
-            parseChapterElements(ajaxDoc, chapters)
+        if (result.isEmpty()) {
+            val document = client.newCall(GET("$baseUrl$pathWithSlash", headers)).awaitSuccess().let {
+                Jsoup.parse(it.body.string(), baseUrl)
+            }
+            val mangaId = document.selectFirst("#manga-chapters-holder")?.attr("data-id")
+            if (!mangaId.isNullOrEmpty()) {
+                val body = FormBody.Builder().add("action", "manga_get_chapters").add("manga", mangaId).build()
+                try {
+                    val ajaxResp = client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).awaitSuccess()
+                    val ajaxDoc = Jsoup.parse(ajaxResp.body.string(), baseUrl)
+                    parseChapterElements(ajaxDoc, result)
+                } catch (_: Exception) {}
+            }
+            if (result.isEmpty()) {
+                parseChapterElements(document, result)
+            }
         }
 
-        if (chapters.isEmpty()) {
-            parseChapterElements(document, chapters)
-        }
-
-        return chapters
+        return result
     }
 
     private fun parseChapterElements(document: Document, chapters: MutableList<SChapter>) {
@@ -362,7 +406,8 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         for (element in elements) {
             val link = element.selectFirst("a") ?: continue
             val chapter = SChapter.create().apply {
-                url = link.attr("href").substringAfter(baseUrl)
+                val href = link.attr("abs:href").ifBlank { link.attr("href") }
+                url = if (href.startsWith(baseUrl)) href.substringAfter(baseUrl) else href
                 name = link.text().trim()
                 val dateText = element.selectFirst("span.chapter-release-date, .c-new-tag")?.text()?.trim()
                 date_upload = parseChapterDate(dateText)
