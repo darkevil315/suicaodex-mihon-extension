@@ -160,21 +160,26 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         }
     }
 
+    // UA hợp lệ phải bắt đầu bằng Mozilla/ (UA cụt kiểu "Chrome/148" sẽ bị bỏ qua)
     private fun sanitizeUserAgent(ua: String?): String? {
         val trimmed = ua?.trim()?.ifBlank { null } ?: return null
-        return if (!trimmed.startsWith("Mozilla/", ignoreCase = true) && trimmed.contains("Chrome/")) {
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) $trimmed Safari/537.36"
-        } else {
-            trimmed
-        }
+        return trimmed.takeIf { it.startsWith("Mozilla/", ignoreCase = true) }
+    }
+
+    private fun autoPair(): Pair<String?, String?> =
+        sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null)) to
+            sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
+
+    // Cặp thủ công chỉ dùng khi có đủ cả cookie lẫn UA hợp lệ (cf_clearance gắn chặt với UA)
+    private fun customPair(): Pair<String?, String?>? {
+        val ua = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
+        val cookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+        return if (ua != null && cookie != null) ua to cookie else null
     }
 
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val customUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
-            ?: sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null))
-        val customCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
-            ?: sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
+        val (customUA, customCookie) = customPair() ?: autoPair()
 
         val initialRequest = request.newBuilder().apply {
             if (customUA != null) {
@@ -210,10 +215,8 @@ class HentaiCB : HttpSource(), ConfigurableSource {
 
             response.close()
 
-            val retryUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
-                ?: sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null))
-            val retryCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
-                ?: sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
+            // Sau khi FlareSolverr giải xong: luôn dùng cặp UA+cookie của FlareSolverr (khớp nhau)
+            val (retryUA, retryCookie) = autoPair()
 
             val retryRequest = request.newBuilder().apply {
                 if (retryUA != null) {
