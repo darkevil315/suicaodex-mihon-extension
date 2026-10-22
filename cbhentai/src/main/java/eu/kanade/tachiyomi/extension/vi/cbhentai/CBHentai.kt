@@ -257,9 +257,9 @@ class CBHentai : HttpSource(), ConfigurableSource {
             SManga.create().apply {
                 url = titleElement.attr("href").substringAfter(baseUrl)
                 title = titleElement.text().trim()
-                thumbnail_url = imgElement?.let {
-                    it.attr("abs:data-src").ifBlank { it.attr("abs:src") }
-                }
+                val dataSrc = imgElement?.attr("abs:data-src")
+                val src = imgElement?.attr("abs:src")
+                thumbnail_url = if (!dataSrc.isNullOrBlank()) dataSrc else src
             }
         }
 

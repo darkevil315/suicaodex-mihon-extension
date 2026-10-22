@@ -88,6 +88,7 @@ dependencies {
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     compileOnly("org.jsoup:jsoup:1.22.2")
+    compileOnly("org.jspecify:jspecify:1.0.0")
     compileOnly("androidx.preference:preference:1.2.1")
 
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.2")
