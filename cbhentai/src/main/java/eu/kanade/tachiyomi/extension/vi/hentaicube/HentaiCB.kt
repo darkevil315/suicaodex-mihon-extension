@@ -151,12 +151,30 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         }
     }
 
+    private fun sanitizeCookie(cookie: String?): String? {
+        val trimmed = cookie?.trim()?.ifBlank { null } ?: return null
+        return if (!trimmed.contains("=")) {
+            "cf_clearance=$trimmed"
+        } else {
+            trimmed
+        }
+    }
+
+    private fun sanitizeUserAgent(ua: String?): String? {
+        val trimmed = ua?.trim()?.ifBlank { null } ?: return null
+        return if (!trimmed.startsWith("Mozilla/", ignoreCase = true) && trimmed.contains("Chrome/")) {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) $trimmed Safari/537.36"
+        } else {
+            trimmed
+        }
+    }
+
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val customUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
-            ?: preferences.getString(AUTO_FLARE_UA_KEY, null)?.trim()?.ifBlank { null }
-        val customCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
-            ?: preferences.getString(AUTO_FLARE_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+        val customUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
+            ?: sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null))
+        val customCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+            ?: sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
 
         val initialRequest = request.newBuilder().apply {
             if (customUA != null) {
@@ -192,10 +210,10 @@ class HentaiCB : HttpSource(), ConfigurableSource {
 
             response.close()
 
-            val retryUA = preferences.getString(CUSTOM_USER_AGENT_KEY, null)?.trim()?.ifBlank { null }
-                ?: preferences.getString(AUTO_FLARE_UA_KEY, null)?.trim()?.ifBlank { null }
-            val retryCookie = preferences.getString(CUSTOM_COOKIE_KEY, null)?.trim()?.ifBlank { null }
-                ?: preferences.getString(AUTO_FLARE_COOKIE_KEY, null)?.trim()?.ifBlank { null }
+            val retryUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
+                ?: sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null))
+            val retryCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+                ?: sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
 
             val retryRequest = request.newBuilder().apply {
                 if (retryUA != null) {
@@ -495,7 +513,10 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             // Cloudflare Turnstile token required by MSR v3
             throw Exception(
                 "Chương này yêu cầu xác minh Cloudflare Turnstile (MSR v3).\n" +
-                "Vui lòng mở web trên trình duyệt hoặc cài đặt Cookie xác minh trong Settings extension để đọc tiếp."
+                "Do chương đọc được bảo vệ bởi Turnstile riêng trong trang, vui lòng:\n" +
+                "1. Mở chương này trên Chrome/Edge và bấm xác minh để ảnh truyện hiển thị lên web.\n" +
+                "2. Bấm F12 -> Console -> gõ: copy(document.cookie) -> Dán vào Cookie trong Settings extension.\n" +
+                "3. Gõ tiếp: copy(navigator.userAgent) -> Dán vào User-Agent trong Settings extension."
             )
         }
 
