@@ -15,6 +15,8 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.Headers
@@ -140,10 +142,28 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
     }
 
     // ------------------------------------------------------------------------------------
-    // Manga Details
+    // Manga Details & Chapters (Tachiyomix 1.6 getMangaUpdate)
     // ------------------------------------------------------------------------------------
 
-    override suspend fun getMangaDetails(manga: SManga): SManga {
+    override suspend fun getMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = coroutineScope {
+        val detailsDeferred = if (fetchDetails) async { fetchMangaDetails(manga) } else null
+        val chaptersDeferred = if (fetchChapters) async { fetchChapterList(manga) } else null
+
+        val detailsResult = detailsDeferred?.await()
+        val newChapters = chaptersDeferred?.await()
+
+        SMangaUpdate(
+            detailsResult ?: manga,
+            newChapters ?: chapters,
+        )
+    }
+
+    private suspend fun fetchMangaDetails(manga: SManga): SManga {
         val slug = manga.url.substringAfter(':')
         val url = "$baseUrl/truyen/$slug"
         val response = client.newCall(GET(url, headers)).awaitSuccess()
@@ -193,11 +213,7 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         return "$baseUrl/truyen/$slug"
     }
 
-    // ------------------------------------------------------------------------------------
-    // Chapter List
-    // ------------------------------------------------------------------------------------
-
-    override suspend fun getChapterList(manga: SManga): List<SChapter> {
+    private suspend fun fetchChapterList(manga: SManga): List<SChapter> {
         val mangaId = manga.url.substringBefore(':')
         val slug = manga.url.substringAfter(':')
         val url = "$baseUrl/api/comic/$mangaId/chapter?limit=-1"
