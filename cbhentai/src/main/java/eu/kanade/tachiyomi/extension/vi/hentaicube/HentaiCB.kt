@@ -63,6 +63,7 @@ class HentaiCB : HttpSource(), ConfigurableSource {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        encodeDefaults = true
     }
 
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT)
@@ -112,13 +113,7 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         val flareUrl = preferences.getString(FLARESOLVERR_URL_KEY, DEFAULT_FLARESOLVERR_URL)
             ?.trim()?.ifBlank { DEFAULT_FLARESOLVERR_URL } ?: DEFAULT_FLARESOLVERR_URL
 
-        val payload = json.encodeToString(
-            FlareSolverrRequest(
-                cmd = "request.get",
-                url = targetUrl,
-                maxTimeout = 60000,
-            ),
-        )
+        val payload = """{"cmd":"request.get","url":"$targetUrl","maxTimeout":60000}"""
 
         val flareReq = Request.Builder()
             .url(flareUrl)
@@ -180,9 +175,13 @@ class HentaiCB : HttpSource(), ConfigurableSource {
 
         // Bị Cloudflare chặn & FlareSolverr đang được bật -> Tự động giải và retry
         return synchronized(flareLock) {
-            val now = System.currentTimeMillis()
-            if (now - lastSolvedTimestamp > 10_000L) {
-                solveCloudflare("$baseUrl/")
+            try {
+                val now = System.currentTimeMillis()
+                if (now - lastSolvedTimestamp > 10_000L) {
+                    solveCloudflare("$baseUrl/")
+                }
+            } catch (_: Exception) {
+                return response
             }
 
             response.close()
