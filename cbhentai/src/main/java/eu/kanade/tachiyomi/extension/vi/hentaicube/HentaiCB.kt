@@ -170,22 +170,17 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null)) to
             sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
 
-    // Cặp thủ công chỉ dùng khi có đủ cả cookie lẫn UA hợp lệ (cf_clearance gắn chặt với UA)
-    private fun customPair(): Pair<String?, String?>? {
-        val ua = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
-        val cookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
-        return if (ua != null && cookie != null) ua to cookie else null
-    }
-
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        // Request đầu tiên: giữ nguyên như keiyoushi (UA/cookie mặc định của client).
-        // Chỉ gắn cặp thủ công nếu người dùng nhập đủ cả cookie lẫn UA hợp lệ.
-        val manual = customPair()
+        val customUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
+        val customCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+
         val initialRequest = request.newBuilder().apply {
-            if (manual != null) {
-                header("User-Agent", manual.first!!)
-                header("Cookie", manual.second!!)
+            if (customUA != null) {
+                header("User-Agent", customUA)
+            }
+            if (customCookie != null) {
+                header("Cookie", customCookie)
             }
         }.build()
 
@@ -495,11 +490,18 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             "$baseUrl${if (apiEndpoint.startsWith("/")) "" else "/"}${apiEndpoint.removeSuffix("/")}"
         }
 
+        val customUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
+        val customCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+
         val apiHeaders = headersBuilder()
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")
             .set("X-MSR-Request", "1")
             .set("Referer", chapterUrl)
+            .apply {
+                if (customUA != null) set("User-Agent", customUA)
+                if (customCookie != null) set("Cookie", customCookie)
+            }
             .build()
 
         val pagesPayload = json.encodeToString(MsrPagesRequest(manga = mangaId, chapter = chapterId))
