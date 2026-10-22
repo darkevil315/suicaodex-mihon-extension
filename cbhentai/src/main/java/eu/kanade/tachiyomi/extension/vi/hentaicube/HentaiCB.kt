@@ -18,10 +18,12 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.ConnectionPool
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -83,6 +85,18 @@ class HentaiCB : HttpSource(), ConfigurableSource {
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .addInterceptor(::authInterceptor)
         .build()
+
+    private val freshClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
+            .build()
+    }
+
+    private fun resetNetworkConnections() {
+        try {
+            client.connectionPool.evictAll()
+        } catch (_: Throwable) {}
+    }
 
     private val xhrHeaders: Headers
         get() = headersBuilder()
@@ -531,32 +545,58 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             "$baseUrl${if (apiEndpoint.startsWith("/")) "" else "/"}${apiEndpoint.removeSuffix("/")}"
         }
 
-        val customUA = getLiveUserAgent()
-        val customCookie = getLiveCookie()
-
-        val apiHeaders = headersBuilder()
-            .set("Accept", "application/json")
-            .set("Content-Type", "application/json")
-            .set("X-MSR-Request", "1")
-            .set("Referer", chapterUrl)
-            .set("Connection", "close")
-            .apply {
-                if (customUA != null) set("User-Agent", customUA)
-                if (customCookie != null) set("Cookie", customCookie)
-            }
-            .build()
+        // Tự động giải phóng toàn bộ connection cũ trước khi tải chapter
+        resetNetworkConnections()
 
         val pagesPayload = json.encodeToString(MsrPagesRequest(manga = mangaId, chapter = chapterId))
-        val pagesReq = Request.Builder()
-            .url("$baseApiUrl/pages")
-            .headers(apiHeaders)
-            .post(pagesPayload.toRequestBody("application/json".toMediaType()))
-            .build()
 
-        val response = client.newCall(pagesReq).execute()
+        fun buildPagesRequest(useCustomCookie: Boolean): Request {
+            val customUA = getLiveUserAgent()
+            val customCookie = if (useCustomCookie) getLiveCookie() else null
+
+            val apiHeaders = headersBuilder()
+                .set("Accept", "application/json")
+                .set("Content-Type", "application/json")
+                .set("X-MSR-Request", "1")
+                .set("Referer", chapterUrl)
+                .set("Connection", "close")
+                .apply {
+                    if (customUA != null) set("User-Agent", customUA)
+                    if (customCookie != null) set("Cookie", customCookie)
+                }
+                .build()
+
+            return Request.Builder()
+                .url("$baseApiUrl/pages")
+                .headers(apiHeaders)
+                .post(pagesPayload.toRequestBody("application/json".toMediaType()))
+                .build()
+        }
+
+        // Lần 1: gửi qua freshClient (dùng cookie nếu có)
+        var response = freshClient.newCall(buildPagesRequest(useCustomCookie = true)).execute()
+
+        // Nếu bị 401: Cơ chế tự động Reset Session mô phỏng Restart Suwayomi
         if (response.code == 401) {
             response.close()
-            // Cloudflare Turnstile token required by MSR v3
+            resetNetworkConnections()
+            delay(2500L) // Giãn cách 2.5s để server làm mới quota/session
+
+            // Thử lại lần 2 với Fresh Connection KHÔNG MANG COOKIE CŨ (như khách mới kết nối lần đầu)
+            response = freshClient.newCall(buildPagesRequest(useCustomCookie = false)).execute()
+
+            // Nếu vẫn 401 và có cấu hình cookie trong settings, thử lại lần 3 sau 2s
+            if (response.code == 401 && getLiveCookie() != null) {
+                response.close()
+                resetNetworkConnections()
+                delay(2000L)
+                response = freshClient.newCall(buildPagesRequest(useCustomCookie = true)).execute()
+            }
+        }
+
+        if (response.code == 401) {
+            response.close()
+            resetNetworkConnections()
             throw Exception(
                 "Chương này yêu cầu xác minh Cloudflare Turnstile (MSR v3).\n" +
                 "Vui lòng:\n" +
@@ -569,11 +609,16 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         if (!response.isSuccessful) {
             val code = response.code
             response.close()
+            resetNetworkConnections()
             throw Exception("MSR v3 API trả về lỗi HTTP $code")
         }
 
         val body = response.body.string()
         val data = json.decodeFromString<MsrPagesResponse>(body)
+
+        // Dọn dẹp connection sau khi hoàn thành chapter
+        resetNetworkConnections()
+
         return data.items.mapIndexed { index, imageUrl ->
             Page(index, chapterUrl, imageUrl)
         }
