@@ -154,6 +154,7 @@ jobs:
               "version_name": "$VERSION_NAME2",
               "lib_version": "$LIB_VERSION2",
               "version_id": $VERSION_ID2,
+              "source_id": 7197999570080436874,
               "base_url": "https://goctruyentranhvui30.com",
               "apk_filename": "${PKG2}.apk"
             },
@@ -166,6 +167,7 @@ jobs:
               "version_name": "$VERSION_NAME3",
               "lib_version": "$LIB_VERSION3",
               "version_id": $VERSION_ID3,
+              "source_id": 823638192569572166,
               "base_url": "https://2tencb.pro",
               "apk_filename": "${PKG3}.apk"
             }

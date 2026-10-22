@@ -102,6 +102,7 @@ class ExtensionInfo:
     version_id: int
     base_url: str
     apk_filename: str
+    source_id: int | None = None
 
 
 def build_new_schema_dict(repo_name: str, badge_label: str, signing_key: str,
@@ -129,7 +130,7 @@ def build_new_schema_dict(repo_name: str, badge_label: str, signing_key: str,
                     "contentWarning": "CONTENT_WARNING_NSFW" if ext.nsfw else "CONTENT_WARNING_SAFE",
                     "sources": [
                         {
-                            "id": source_id(ext.name, ext.lang, ext.version_id),
+                            "id": ext.source_id if ext.source_id is not None else source_id(ext.name, ext.lang, ext.version_id),
                             "name": ext.name,
                             "language": ext.lang,
                             "homeUrl": ext.base_url,
@@ -244,6 +245,7 @@ def main() -> None:
                     version_id=item.get("version_id", 1),
                     base_url=item.get("base_url", "https://suicaodex.com"),
                     apk_filename=item.get("apk_filename", f"{item['pkg']}.apk"),
+                    source_id=item.get("source_id"),
                 ))
     else:
         if not args.pkg or not args.name or args.code is None or not args.version or not args.lib_version:
