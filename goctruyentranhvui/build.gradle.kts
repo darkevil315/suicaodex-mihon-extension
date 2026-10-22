@@ -11,9 +11,9 @@ plugins {
 val extName = "Góc Truyện Tranh Vui"
 val pkgNameSuffix = "vi.goctruyentranhvui"
 val extClass = ".GocTruyenTranhVui"
-val extVersionCode = 107003
-val extVersionName = "1.7.3"
-val libVersion = "1.7"
+val extVersionCode = 106999
+val extVersionName = "1.6.99"
+val libVersion = "1.6"
 
 val tachiyomixVersion = "1.6.0"
 
