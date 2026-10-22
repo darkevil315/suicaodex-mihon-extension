@@ -289,9 +289,12 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         val detailsDeferred = if (fetchDetails) async { getMangaDetailsInternal(manga) } else null
         val chaptersDeferred = if (fetchChapters) async { getChapterListInternal(manga) } else null
 
+        val detailsResult = detailsDeferred?.await()
+        val newChapters = chaptersDeferred?.await()
+
         SMangaUpdate(
-            details = detailsDeferred?.await(),
-            chapters = chaptersDeferred?.await(),
+            detailsResult ?: manga,
+            newChapters ?: chapters,
         )
     }
 
