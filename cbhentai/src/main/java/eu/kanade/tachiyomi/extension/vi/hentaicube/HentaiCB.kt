@@ -166,14 +166,55 @@ class HentaiCB : HttpSource(), ConfigurableSource {
         return trimmed.takeIf { it.startsWith("Mozilla/", ignoreCase = true) }
     }
 
+    @Volatile
+    private var lastXmlCheckTime: Long = 0L
+    @Volatile
+    private var lastXmlModified: Long = 0L
+    @Volatile
+    private var cachedXmlCookie: String? = null
+    @Volatile
+    private var cachedXmlUA: String? = null
+
+    private fun reloadXmlSettingsIfChanged() {
+        val now = System.currentTimeMillis()
+        if (now - lastXmlCheckTime < 2000L) return
+        lastXmlCheckTime = now
+
+        try {
+            val localAppData = System.getenv("LOCALAPPDATA")
+                ?: (System.getProperty("user.home")?.let { "$it\\AppData\\Local" } ?: return)
+            val xmlFile = java.io.File(localAppData, "Tachidesk\\settings\\source_$id.xml")
+            if (xmlFile.exists()) {
+                val modified = xmlFile.lastModified()
+                if (modified != lastXmlModified) {
+                    lastXmlModified = modified
+                    val props = java.util.Properties()
+                    xmlFile.inputStream().use { props.loadFromXML(it) }
+                    cachedXmlCookie = sanitizeCookie(props.getProperty(CUSTOM_COOKIE_KEY))
+                    cachedXmlUA = sanitizeUserAgent(props.getProperty(CUSTOM_USER_AGENT_KEY))
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun getLiveCookie(): String? {
+        reloadXmlSettingsIfChanged()
+        return cachedXmlCookie ?: sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+    }
+
+    private fun getLiveUserAgent(): String? {
+        reloadXmlSettingsIfChanged()
+        return cachedXmlUA ?: sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
+    }
+
     private fun autoPair(): Pair<String?, String?> =
         sanitizeUserAgent(preferences.getString(AUTO_FLARE_UA_KEY, null)) to
             sanitizeCookie(preferences.getString(AUTO_FLARE_COOKIE_KEY, null))
 
     private fun authInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val customUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
-        val customCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+        val customUA = getLiveUserAgent()
+        val customCookie = getLiveCookie()
 
         val initialRequest = request.newBuilder().apply {
             if (customUA != null) {
@@ -490,14 +531,15 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             "$baseUrl${if (apiEndpoint.startsWith("/")) "" else "/"}${apiEndpoint.removeSuffix("/")}"
         }
 
-        val customUA = sanitizeUserAgent(preferences.getString(CUSTOM_USER_AGENT_KEY, null))
-        val customCookie = sanitizeCookie(preferences.getString(CUSTOM_COOKIE_KEY, null))
+        val customUA = getLiveUserAgent()
+        val customCookie = getLiveCookie()
 
         val apiHeaders = headersBuilder()
             .set("Accept", "application/json")
             .set("Content-Type", "application/json")
             .set("X-MSR-Request", "1")
             .set("Referer", chapterUrl)
+            .set("Connection", "close")
             .apply {
                 if (customUA != null) set("User-Agent", customUA)
                 if (customCookie != null) set("Cookie", customCookie)
@@ -517,10 +559,10 @@ class HentaiCB : HttpSource(), ConfigurableSource {
             // Cloudflare Turnstile token required by MSR v3
             throw Exception(
                 "Chương này yêu cầu xác minh Cloudflare Turnstile (MSR v3).\n" +
-                "Do chương đọc được bảo vệ bởi Turnstile riêng trong trang, vui lòng:\n" +
-                "1. Mở chương này trên Chrome/Edge và bấm xác minh để ảnh truyện hiển thị lên web.\n" +
-                "2. Bấm F12 -> Console -> gõ: copy(document.cookie) -> Dán vào Cookie trong Settings extension.\n" +
-                "3. Gõ tiếp: copy(navigator.userAgent) -> Dán vào User-Agent trong Settings extension."
+                "Vui lòng:\n" +
+                "1. Mở chương này trên Chrome/Edge và bấm xác minh ô Cloudflare trên trang đọc.\n" +
+                "2. Dùng tiện ích Cookie-Editor (Export -> Header String) hoặc F12 Network copy header Cookie.\n" +
+                "3. Dán vào ô Cookie trong Settings extension (không cần restart Suwayomi)."
             )
         }
 
