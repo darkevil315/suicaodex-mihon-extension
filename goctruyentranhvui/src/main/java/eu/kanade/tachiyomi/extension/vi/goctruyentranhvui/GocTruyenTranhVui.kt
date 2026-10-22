@@ -152,8 +152,8 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = coroutineScope {
-        val detailsDeferred = if (fetchDetails) async { fetchMangaDetails(manga) } else null
-        val chaptersDeferred = if (fetchChapters) async { fetchChapterList(manga) } else null
+        val detailsDeferred = if (fetchDetails) async { getMangaDetailsInternal(manga) } else null
+        val chaptersDeferred = if (fetchChapters) async { getChapterListInternal(manga) } else null
 
         val detailsResult = detailsDeferred?.await()
         val newChapters = chaptersDeferred?.await()
@@ -164,7 +164,7 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         )
     }
 
-    private suspend fun fetchMangaDetails(manga: SManga): SManga {
+    private suspend fun getMangaDetailsInternal(manga: SManga): SManga {
         val slug = manga.url.substringAfter(':')
         val url = "$baseUrl/truyen/$slug"
         val response = client.newCall(GET(url, headers)).awaitSuccess()
@@ -214,7 +214,7 @@ class GocTruyenTranhVui : HttpSource(), ConfigurableSource {
         return "$baseUrl/truyen/$slug"
     }
 
-    private suspend fun fetchChapterList(manga: SManga): List<SChapter> {
+    private suspend fun getChapterListInternal(manga: SManga): List<SChapter> {
         val mangaId = manga.url.substringBefore(':')
         val slug = manga.url.substringAfter(':')
         val url = "$baseUrl/api/comic/$mangaId/chapter?limit=-1"
