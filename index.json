@@ -1,0 +1,53 @@
+{
+  "name": "SuicaoDex & VN Extensions",
+  "badgeLabel": "VN",
+  "signingKey": "c140fab2526f9e293eb1db55e3b45be2fae6ee7e6851bcc855699930079871df",
+  "contact": {
+    "website": "https://github.com/darkevil315/suicaodex-mihon-extension",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "SuicaoDex",
+        "packageName": "eu.kanade.tachiyomi.extension.vi.suicaodex",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/darkevil315/suicaodex-mihon-extension/repo/apk/eu.kanade.tachiyomi.extension.vi.suicaodex.apk",
+          "iconUrl": "https://raw.githubusercontent.com/darkevil315/suicaodex-mihon-extension/repo/icon/eu.kanade.tachiyomi.extension.vi.suicaodex.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 7,
+        "versionName": "1.6.7",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": 7951014720451165454,
+            "name": "SuicaoDex",
+            "language": "vi",
+            "homeUrl": "https://suicaodex.com"
+          }
+        ]
+      },
+      {
+        "name": "Góc Truyện Tranh Vui",
+        "packageName": "eu.kanade.tachiyomi.extension.vi.goctruyentranhvui",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/darkevil315/suicaodex-mihon-extension/repo/apk/eu.kanade.tachiyomi.extension.vi.goctruyentranhvui.apk",
+          "iconUrl": "https://raw.githubusercontent.com/darkevil315/suicaodex-mihon-extension/repo/icon/eu.kanade.tachiyomi.extension.vi.goctruyentranhvui.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106999,
+        "versionName": "1.6.99",
+        "contentWarning": "CONTENT_WARNING_NSFW",
+        "sources": [
+          {
+            "id": 7197999570080436874,
+            "name": "Góc Truyện Tranh Vui",
+            "language": "vi",
+            "homeUrl": "https://goctruyentranhvui30.com"
+          }
+        ]
+      }
+    ]
+  }
+}
